@@ -23,6 +23,10 @@ const payOS = new PayOS(
   process.env.PAYOS_CHECKSUM_KEY
 );
 
+// DEBUG TẠM THỜI: in ra danh sách hàm thật sự có trên payOS để xác định
+// đúng tên hàm check trạng thái đơn hàng. Xoá đoạn này sau khi xác định xong.
+console.log('payOS methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(payOS)));
+
 const app = express();
 app.use(express.json());
 
