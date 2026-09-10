@@ -23,10 +23,6 @@ const payOS = new PayOS(
   process.env.PAYOS_CHECKSUM_KEY
 );
 
-// DEBUG TẠM THỜI: in ra danh sách hàm thật sự có trên payOS để xác định
-// đúng tên hàm check trạng thái đơn hàng. Xoá đoạn này sau khi xác định xong.
-console.log('payOS methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(payOS)));
-
 const app = express();
 app.use(express.json());
 
@@ -34,36 +30,6 @@ app.use(express.json());
 // dùng để tự kiểm tra server còn sống, và bạn có thể ping định kỳ nếu muốn
 // giảm cold start (không bắt buộc).
 app.get('/', (req, res) => res.send('payOS server is running'));
-
-// ============================================================================
-// HÀM DÙNG CHUNG: đánh dấu đơn hàng đã thanh toán trong Firestore theo orderCode
-// (dùng lại cho cả webhook lẫn endpoint check thủ công bên dưới)
-// ============================================================================
-async function markOrderPaidByOrderCode(orderCode) {
-  const snap = await db
-    .collection('orders')
-    .where('orderCode', '==', orderCode)
-    .limit(1)
-    .get();
-
-  if (snap.empty) {
-    console.warn('Không tìm thấy đơn hàng khớp orderCode:', orderCode);
-    return false;
-  }
-
-  const doc = snap.docs[0];
-  if (doc.data().status === 'paid') {
-    // Đã được đánh dấu paid từ trước (vd. webhook đã chạy), khỏi update lại.
-    return true;
-  }
-
-  await doc.ref.update({
-    status: 'paid',
-    paidAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-  console.log('Đã xác nhận thanh toán cho orderCode:', orderCode);
-  return true;
-}
 
 // ============================================================================
 // 1) TẠO LINK / QR THANH TOÁN
@@ -123,41 +89,29 @@ app.post('/webhook', async (req, res) => {
     // verifyPaymentWebhookData tự kiểm tra chữ ký (checksumKey) - đảm bảo
     // request thật sự đến từ payOS, không phải giả mạo.
     const webhookData = payOS.verifyPaymentWebhookData(req.body);
-    await markOrderPaidByOrderCode(webhookData.orderCode);
+    const { orderCode } = webhookData;
+
+    const snap = await db
+      .collection('orders')
+      .where('orderCode', '==', orderCode)
+      .limit(1)
+      .get();
+
+    if (!snap.empty) {
+      await snap.docs[0].ref.update({
+        status: 'paid',
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('Đã xác nhận thanh toán cho orderCode:', orderCode);
+    } else {
+      console.warn('Không tìm thấy đơn hàng khớp orderCode:', orderCode);
+    }
 
     // payOS yêu cầu phản hồi mã 2xx để biết webhook đã xử lý thành công
     return res.status(200).json({ message: 'OK' });
   } catch (err) {
     console.error('Webhook không hợp lệ:', err);
     return res.status(400).json({ message: 'Invalid webhook' });
-  }
-});
-
-// ============================================================================
-// 3) CHECK PAYMENT STATUS - endpoint DỰ PHÒNG cho webhook
-// ============================================================================
-// App gọi định kỳ (polling) trong lúc chờ ở màn hình QR. Endpoint này hỏi
-// THẲNG payOS xem đơn đã thanh toán chưa (không phụ thuộc webhook), rồi tự
-// cập nhật Firestore nếu đã paid. Bù cho trường hợp webhook bị "rớt" do
-// server free tier ngủ đúng lúc payOS gọi webhook.
-app.get('/check-payment-status/:orderCode', async (req, res) => {
-  try {
-    const orderCode = Number(req.params.orderCode);
-    if (!orderCode) {
-      return res.status(400).json({ error: 'orderCode không hợp lệ' });
-    }
-
-    const info = await payOS.getPaymentLinkInfomation(orderCode);
-    const isPaid = info.status === 'PAID';
-
-    if (isPaid) {
-      await markOrderPaidByOrderCode(orderCode);
-    }
-
-    return res.json({ status: info.status, paid: isPaid });
-  } catch (err) {
-    console.error('Lỗi kiểm tra trạng thái thanh toán:', err);
-    return res.status(500).json({ error: 'Không kiểm tra được trạng thái' });
   }
 });
 
