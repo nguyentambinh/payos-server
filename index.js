@@ -85,8 +85,8 @@ app.post('/create-payment-link', async (req, res) => {
         description: String(
           description || 'Thanh toan don hang'
         ).slice(0, 25),
-        cancelUrl: 'https://your-domain.com/cancel',
-        returnUrl: 'https://your-domain.com/success',
+        cancelUrl: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+        returnUrl: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
       });
 
     await db
