@@ -1,6 +1,6 @@
 const express = require('express');
 const admin = require('firebase-admin');
-const { PayOS } = require('@payos/node');
+const PayOS = require('@payos/node'); // default export, KHÔNG destructure { PayOS }
 
 // ============================================================================
 // KHỞI TẠO FIREBASE ADMIN (dùng service account key, KHÔNG cần Cloud Functions)
@@ -15,13 +15,13 @@ admin.initializeApp({
 const db = admin.firestore();
 
 // ============================================================================
-// KHỞI TẠO PAYOS
+// KHỞI TẠO PAYOS (bản @payos/node 1.0.6 nhận 3 tham số string, không phải object)
 // ============================================================================
-const payOS = new PayOS({
-  clientId: process.env.PAYOS_CLIENT_ID,
-  apiKey: process.env.PAYOS_API_KEY,
-  checksumKey: process.env.PAYOS_CHECKSUM_KEY,
-});
+const payOS = new PayOS(
+  process.env.PAYOS_CLIENT_ID,
+  process.env.PAYOS_API_KEY,
+  process.env.PAYOS_CHECKSUM_KEY
+);
 
 const app = express();
 app.use(express.json());
@@ -47,7 +47,7 @@ app.post('/create-payment-link', async (req, res) => {
     // orderCode của PayOS phải là số nguyên, duy nhất - dùng epoch giây
     const orderCode = Math.floor(Date.now() / 1000);
 
-    const paymentLink = await payOS.paymentRequests.create({
+    const paymentLink = await payOS.createPaymentLink({
       orderCode,
       amount: Math.round(amount),
       // payOS giới hạn description khá ngắn -> cắt bớt cho an toàn
@@ -86,9 +86,9 @@ app.post('/create-payment-link', async (req, res) => {
 // ở mục Webhook của Kênh thanh toán.
 app.post('/webhook', async (req, res) => {
   try {
-    // payOS.webhooks.verify tự kiểm tra chữ ký (checksumKey) - đảm bảo
+    // verifyPaymentWebhookData tự kiểm tra chữ ký (checksumKey) - đảm bảo
     // request thật sự đến từ payOS, không phải giả mạo.
-    const webhookData = payOS.webhooks.verify(req.body);
+    const webhookData = payOS.verifyPaymentWebhookData(req.body);
     const { orderCode } = webhookData;
 
     const snap = await db
